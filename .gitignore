@@ -1,0 +1,4 @@
+.claude/
+HANDOFF_PROMPT.md
+node_modules/
+_site/

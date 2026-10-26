@@ -1,0 +1,171 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ร้านลับริมทาง · tests</title>
+<style>
+  body{font:14px/1.5 system-ui,sans-serif;margin:24px;color:#1E2B2A;background:#fff}
+  h1{font-size:18px;margin:0 0 12px}
+  #sum{font-weight:600;margin-bottom:12px}
+  li{margin:2px 0} .pass{color:#1B7A3A} .fail{color:#B3261E} pre{margin:2px 0 6px 18px;white-space:pre-wrap;color:#B3261E}
+  iframe{position:absolute;left:-9999px;width:390px;height:844px;border:0}
+</style>
+</head>
+<body>
+<h1>ร้านลับริมทาง · tests</h1>
+<div id="sum">กำลังรัน…</div>
+<ol id="out"></ol>
+<script src="../assets/logic.js"></script>
+<script src="../assets/components.js"></script>
+<script>
+// ตัวรันเทสต์ขนาดเล็ก (ไม่มี dependency) — เปิดผ่าน static server ที่ /tests/
+const T = [], sleep = ms => new Promise(r => setTimeout(r, ms));
+const test = (name, fn) => T.push({ name, fn });
+const eq = (a, b, msg = '') => { if (JSON.stringify(a) !== JSON.stringify(b)) throw new Error(`${msg} expected ${JSON.stringify(b)}, got ${JSON.stringify(a)}`); };
+const ok = (v, msg) => { if (!v) throw new Error(msg || 'expected truthy'); };
+// สร้าง DOM ในเอกสารแยก เพื่อไม่ให้เบราว์เซอร์โหลดรูปจริงระหว่างเทสต์คอมโพเนนต์
+const inert = document.implementation.createHTMLDocument('');
+const dom = html => { const d = inert.createElement('div'); d.innerHTML = html; return d; };
+async function waitFor(fn, ms = 4000) { const t0 = Date.now(); for (;;) { const v = fn(); if (v) return v; if (Date.now() - t0 > ms) throw new Error('timeout waiting for ' + fn); await sleep(50); } }
+
+/* ---------- Logic ---------- */
+test('ประตู: "เดินผ่านไป" แยกไปทางแยก A, ที่เหลือไปชั้นวาง', () => {
+  eq(Logic.afterDoor('pass'), 'pass');
+  for (const v of ['in', 'peek', 'look']) eq(Logic.afterDoor(v), 'shelf', v);
+});
+test('เช็กใจ: ระดับ 3 ไปหน้าความปลอดภัยเท่านั้น', () => {
+  eq(Logic.afterCheck(3), 'safety');
+  for (const c of [0, 1, 2]) eq(Logic.afterCheck(c), 'loading', 'level ' + c);
+});
+test('ของที่แบกมา: เดินผ่านประตูได้การ์ด "pass"', () => {
+  eq(Logic.carryKey({ door: 'pass', shelf: 'jar' }), 'pass');
+  eq(Logic.carryKey({ door: 'in', shelf: 'lantern' }), 'lantern');
+});
+test('next step ตามระดับความหนักใจ', () => {
+  eq(Logic.nextStep(0, { shop: 'open', gift: 'umbrella' }), { kind: 'light', hotline: false });
+  eq(Logic.nextStep(1, { shop: 'fine', gift: 'tea' }), { kind: 'test', hotline: false });
+  eq(Logic.nextStep(1, { shop: 'stuck', gift: 'tea' }), { kind: 'talk', hotline: false });
+  eq(Logic.nextStep(1, { shop: 'fine', gift: 'umbrella' }), { kind: 'talk', hotline: false });
+  eq(Logic.nextStep(2, { shop: 'fine', gift: 'none' }), { kind: 'talk', hotline: true });
+});
+test('progress เป็นเปอร์เซ็นต์ของ 5 ขั้น', () => { eq(Logic.progress(1), 20); eq(Logic.progress(5), 100); });
+test('"ไม่ค่อยตรงกับฉัน" สลับของโดยไม่แก้ state เดิม', () => {
+  const a = { door: 'pass', shelf: undefined, gift: 'tea' };
+  eq(Logic.swapCarry(a, 'jar'), { door: 'peek', shelf: 'jar', gift: 'tea' });
+  eq(a.door, 'pass', 'original untouched');
+  eq(Logic.swapCarry({ door: 'in', shelf: 'jar' }, 'pass').door, 'pass');
+});
+
+/* ---------- Components ---------- */
+test('OptionButton: เป็น <button> มีชื่อ, data-v และ aria-pressed', () => {
+  const b = dom(UI.OptionButton({ v: 'in', label: 'ผลักประตูเข้าไปเลย', icon: 'door', selected: true })).firstElementChild;
+  eq(b.tagName, 'BUTTON'); eq(b.dataset.v, 'in'); eq(b.getAttribute('aria-pressed'), 'true');
+  ok(b.textContent.includes('ผลักประตูเข้าไปเลย'));
+  ok(b.classList.contains('sel'));
+});
+test('ไอคอนทุกตัวซ่อนจาก screen reader', () => {
+  const d = dom(UI.OptionButton({ v: 'x', label: 'x', icon: 'door' }) + UI.TopBar(2) + UI.Footer());
+  for (const s of d.querySelectorAll('svg')) eq(s.getAttribute('aria-hidden'), 'true');
+});
+test('TopBar: มี h1 และ progressbar บอกขั้น', () => {
+  const d = dom(UI.TopBar(3));
+  ok(d.querySelector('h1'), 'h1');
+  const p = d.querySelector('[role=progressbar]');
+  eq(p.getAttribute('aria-valuenow'), '3'); eq(p.getAttribute('aria-valuemax'), '5');
+  ok(d.querySelector('[data-back][aria-label]'), 'back button has a name');
+});
+test('SceneCard: เป็นภาพเดียวมีคำบรรยาย, ภาพย่อยเป็น decorative', () => {
+  const d = dom(UI.SceneCard({ key: 'door', bg: 'x.png', mooca: ['sad', 'left'], alt: 'ฉากประตู', rain: 3, eager: true }));
+  const s = d.querySelector('.scene');
+  eq(s.getAttribute('role'), 'img'); eq(s.getAttribute('aria-label'), 'ฉากประตู');
+  for (const img of s.querySelectorAll('img')) { eq(img.getAttribute('alt'), ''); ok(img.getAttribute('width') && img.getAttribute('height'), 'img has size (CLS)'); }
+  eq(s.querySelector('.art').getAttribute('fetchpriority'), 'high');
+  eq(s.querySelectorAll('.rain i').length, 3);
+});
+test('ScaleOption: ตัวเลือกอันตรายมีคลาส danger', () => {
+  const b = dom(UI.ScaleOption({ i: 3, label: 'หนักมาก', color: '#C64A46', danger: true })).firstElementChild;
+  ok(b.classList.contains('danger')); eq(b.dataset.v, '3');
+});
+
+/* ---------- Flow (หน้าเว็บจริงใน iframe) ---------- */
+let F, W;
+async function boot() {
+  F && F.remove(); F = document.createElement('iframe'); F.src = '../index.html?test=' + Date.now(); document.body.appendChild(F);
+  await new Promise(r => F.onload = r); W = F.contentWindow;
+  await waitFor(() => W.document.querySelector('[data-start]'));
+}
+const $ = s => W.document.querySelector(s);
+const opt = i => W.document.querySelectorAll('.opt')[i];
+const at = name => waitFor(() => W.eval('current') === name && $('.screen:not(.out)'));
+async function toDoor() { $('[data-start]').click(); await at('road'); await sleep(250); $('[data-next]').click(); await at('door'); await sleep(300); }
+
+test('flow: เส้นทางหลักครบ 5 ตัวเลือกถึงผลลัพธ์', async () => {
+  await boot(); await toDoor();
+  for (const [name, i] of [['door', 0], ['shelf', 0], ['mirror', 3], ['shop', 1], ['gift', 1]]) { eq(W.eval('current'), name); opt(i).click(); await sleep(name === 'mirror' ? 1900 : 750); }
+  await at('check'); opt(1).click();
+  await at('result');
+  eq($('.result').dataset.nextKind, 'test');
+  ok($('.skyline').textContent.includes('เมฆครึ้ม'));
+});
+test('flow: ทางแยก A ไม่มีแถบความคืบหน้า และข้ามไปของฝาก', async () => {
+  await boot(); await toDoor();
+  opt(3).click(); await at('pass');
+  ok(!$('[role=progressbar]'), 'no progress on side path');
+  $('[data-next]').click(); await at('gift');
+  ok($('.story p').textContent.includes('กล่อง'), 'gift story mentions the box');
+});
+test('flow: ทางแยก B ระดับหนักมากไปหน้าความปลอดภัยพร้อม 1323 และ 1669', async () => {
+  await boot(); W.eval('S').a = { door: 'in', shelf: 'jar', mirror: 'tired', shop: 'fine', gift: 'tea' }; W.go('check'); await at('check');
+  opt(3).click(); await at('safety');
+  ok($('a[href="tel:1323"]'), '1323'); ok($('a[href="tel:1669"]'), '1669');
+});
+test('flow: กระจกตอบสนองเมื่อเลือก "มาไกล" (ภาพสว่างขึ้น + ข้อความ)', async () => {
+  await boot(); W.eval('S').a = { door: 'in', shelf: 'jar' }; W.go('mirror'); await at('mirror'); await sleep(300);
+  ok(!$('.scene').classList.contains('r-good'), 'starts neutral');
+  opt(3).click(); await sleep(300);
+  ok($('.scene').classList.contains('r-good'), 'scene brightens');
+  eq($('.mirror-note').textContent, 'ภาพในกระจกยิ้มตอบคุณ');
+});
+test('flow: เช็กใจแสดงข้อความขอบคุณหลังเลือก (ตาม Stitch)', async () => {
+  await boot(); W.go('check'); await at('check');
+  ok($('.support').hidden, 'hidden before');
+  opt(0).click(); await sleep(100);
+  ok(!$('.support').hidden, 'shown after selecting');
+});
+test('flow: ปุ่มย้อนกลับพากลับจอก่อนหน้า', async () => {
+  await boot(); await toDoor(); opt(0).click(); await at('shelf'); await sleep(300);
+  $('[data-back]').click(); await at('door');
+});
+test('a11y: เปลี่ยนจอแล้วโฟกัสย้ายไปหัวเรื่องของจอใหม่', async () => {
+  await boot(); await toDoor();
+  const f = W.document.activeElement; ok(f && /H1|H2/.test(f.tagName), 'focused ' + (f && f.tagName));
+});
+test('a11y: ฉากถนนไม่ไปต่อเองเมื่อผู้ใช้กดคีย์บอร์ด (WCAG 2.2.1)', async () => {
+  await boot(); $('[data-start]').click(); await at('road'); await sleep(300);
+  $('.screen').dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true }));
+  await sleep(3800); eq(W.eval('current'), 'road');
+});
+test('ผลลัพธ์: "ไม่ค่อยตรงกับฉัน" เปลี่ยนของบนการ์ดได้', async () => {
+  await boot(); W.eval('S').a = { door: 'in', shelf: 'jar', mirror: 'good', shop: 'fine', gift: 'tea' }; W.eval('S').check = 0; W.go('result'); await at('result');
+  eq($('.result').dataset.nextKind, 'light');
+  $('[data-swap]').click(); eq($('[data-swap]').getAttribute('aria-expanded'), 'true');
+  $('[data-carry="lantern"]').click(); await sleep(100);
+  ok($('.item.carry b').textContent.includes('โคมไฟ'));
+});
+
+(async () => {
+  const out = document.getElementById('out'); let pass = 0; const results = [];
+  for (const t of T) {
+    const li = document.createElement('li');
+    try { await t.fn(); pass++; li.className = 'pass'; li.textContent = '✓ ' + t.name; results.push({ name: t.name, ok: true }); }
+    catch (e) { li.className = 'fail'; li.innerHTML = '✗ ' + t.name + '<pre>' + e.message + '</pre>'; results.push({ name: t.name, ok: false, err: e.message }); }
+    out.appendChild(li);
+  }
+  F && F.remove();
+  document.getElementById('sum').textContent = `${pass}/${T.length} ผ่าน`;
+  window.__results = { pass, total: T.length, results };
+})();
+</script>
+</body>
+</html>
