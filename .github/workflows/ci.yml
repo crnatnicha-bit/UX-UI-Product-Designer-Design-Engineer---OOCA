@@ -17,16 +17,13 @@ jobs:
   test:
     name: Tests + responsive/a11y audit
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 10
+    # อิมเมจของ Playwright มี Chromium + system deps ติดมาแล้ว ไม่ต้องติดตั้งใหม่ทุกรอบ (เดิมใช้ ~10 นาที)
+    container: mcr.microsoft.com/playwright:v1.47.2-jammy
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-      - name: Install Playwright (Chromium)
-        run: |
-          npm install --no-save playwright@1.47.2
-          npx playwright install --with-deps chromium
+      - name: Install Playwright package
+        run: npm install --no-save playwright@1.47.2
       - name: Serve site
         run: |
           python3 -m http.server 8080 >/dev/null 2>&1 &
